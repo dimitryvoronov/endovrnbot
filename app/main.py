@@ -17,7 +17,7 @@ from starlette.staticfiles import StaticFiles
 from telegram import Update as TgUpdate
 
 from .auth import AuthError, user_from_request
-from .bot import build_application, set_menu_button
+from .bot import build_application, on_startup
 from .config import (BASE_DIR, BOT_TOKEN, MEDIA_DIR, TG_WEBHOOK_SECRET,
                      WEBAPP_URL)
 from .db import (init_db, insert_entry, list_entries, update_profile,
@@ -41,7 +41,7 @@ async def lifespan(_app):
         await ptb.start()
         _bot["app"] = ptb
         with contextlib.suppress(Exception):
-            await set_menu_button(ptb)
+            await on_startup(ptb)
         if WEBAPP_URL and TG_WEBHOOK_SECRET:
             await ptb.bot.set_webhook(
                 url=f"{WEBAPP_URL.rstrip('/')}/tg/webhook",

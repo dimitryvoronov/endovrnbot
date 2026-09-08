@@ -4,8 +4,8 @@
 `main()` runs standalone long-polling for local dev:  python -m app.bot
 """
 from telegram import (BotCommand, InlineKeyboardButton, InlineKeyboardMarkup,
-                      KeyboardButton, MenuButtonWebApp, ReplyKeyboardMarkup,
-                      ReplyKeyboardRemove, Update, WebAppInfo)
+                      KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove,
+                      Update, WebAppInfo)
 from telegram.ext import (Application, CommandHandler, ContextTypes,
                           ConversationHandler, MessageHandler, filters)
 
@@ -242,18 +242,16 @@ def build_application(token: str, post_init=None) -> Application:
     return app
 
 
-async def set_menu_button(app: Application) -> None:
+async def on_startup(app: Application) -> None:
+    # Only the command list is managed here. The chat menu button is left for
+    # you to configure in BotFather (Bot Settings -> Menu Button).
     await app.bot.set_my_commands(BOT_COMMANDS)
-    if WEBAPP_URL:
-        await app.bot.set_chat_menu_button(
-            menu_button=MenuButtonWebApp(text="Дневник", web_app=WebAppInfo(url=WEBAPP_URL))
-        )
 
 
 def main() -> None:
     if not BOT_TOKEN:
         raise SystemExit("BOT_TOKEN is not set in .env")
-    app = build_application(BOT_TOKEN, post_init=set_menu_button)
+    app = build_application(BOT_TOKEN, post_init=on_startup)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
