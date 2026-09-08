@@ -1,10 +1,10 @@
 """Tiny sqlite3 data layer. Sync calls are fine at pilot scale."""
 import json
 import sqlite3
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
-from .config import DB_PATH
+from .config import DB_PATH, MEDIA_DIR
 
 _SCHEMA = (Path(__file__).resolve().parent / "schema.sql").read_text()
 
@@ -43,6 +43,20 @@ def upsert_user(tg_user_id: int, first_name: str = "") -> sqlite3.Row:
 def get_user(tg_user_id: int) -> sqlite3.Row | None:
     with connect() as db:
         return db.execute("SELECT * FROM users WHERE tg_user_id=?", (tg_user_id,)).fetchone()
+
+
+def delete_user(tg_user_id: int) -> None:
+    """Wipe the user's profile, diary entries, and photo files."""
+    with connect() as db:
+        rows = db.execute(
+            "SELECT photo_paths FROM entries WHERE tg_user_id=?", (tg_user_id,)
+        ).fetchall()
+        db.execute("DELETE FROM entries WHERE tg_user_id=?", (tg_user_id,))
+        db.execute("DELETE FROM users WHERE tg_user_id=?", (tg_user_id,))
+    for r in rows:
+        for name in json.loads(r["photo_paths"] or "[]"):
+            with suppress(Exception):
+                (MEDIA_DIR / name).unlink()
 
 
 def update_profile(tg_user_id: int, data: dict) -> None:

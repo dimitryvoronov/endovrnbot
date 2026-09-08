@@ -6,19 +6,20 @@
 from telegram import (BotCommand, InlineKeyboardButton, InlineKeyboardMarkup,
                       KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove,
                       Update, WebAppInfo)
-from telegram.ext import (Application, CommandHandler, ContextTypes,
-                          ConversationHandler, MessageHandler, filters)
+from telegram.ext import (Application, CallbackQueryHandler, CommandHandler,
+                          ContextTypes, ConversationHandler, MessageHandler,
+                          filters)
 
 if __package__:
     from .config import BOT_TOKEN, WEBAPP_URL
-    from .db import update_profile, upsert_user
+    from .db import delete_user, update_profile, upsert_user
     from .profile import ACTIVITY_CHOICES, SEX_CHOICES, bmi, estimate_kcal
 else:
     import os
     import sys
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from app.config import BOT_TOKEN, WEBAPP_URL
-    from app.db import update_profile, upsert_user
+    from app.db import delete_user, update_profile, upsert_user
     from app.profile import ACTIVITY_CHOICES, SEX_CHOICES, bmi, estimate_kcal
 
 PSEUDONYM, SEX, AGE, HEIGHT, WEIGHT, ACTIVITY, ALLERGIES, DISLIKES = range(8)
@@ -31,12 +32,16 @@ HELP_TEXT = (
     "с кем и с чем ели, эмоции\n"
     "• 📊 Отчёт диетологу — PDF за 7/14/30 дней (внутри дневника, вкладка «История»)\n"
     "• 👤 Профиль — влияет на расчёты в отчёте (ИМТ, калораж)\n\n"
-    "Команды: /start · /profile · /menu · /help"
+    "Команды:\n"
+    "/profile — заполнить / изменить профиль\n"
+    "/reset — удалить профиль и все записи\n"
+    "/menu · /help · /start"
 )
 
 BOT_COMMANDS = [
     BotCommand("menu", "Меню"),
-    BotCommand("profile", "Заполнить профиль"),
+    BotCommand("profile", "Заполнить / изменить профиль"),
+    BotCommand("reset", "Удалить профиль и записи"),
     BotCommand("help", "Что умеет бот"),
     BotCommand("start", "Начать"),
 ]
@@ -212,6 +217,48 @@ async def help_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(HELP_TEXT, reply_markup=_menu_kb())
 
 
+async def show_profile(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    u = upsert_user(update.effective_user.id, update.effective_user.first_name)
+    if not _profile_complete(u):
+        await update.message.reply_text(
+            "Профиль ещё не заполнен. Заполнить — /profile.", reply_markup=_menu_kb()
+        )
+        return
+    kcal = estimate_kcal(u["sex"], u["age"], u["height_cm"], u["weight_kg"], u["activity"])
+    await update.message.reply_text(
+        "Ваш профиль:\n"
+        f"• {u['pseudonym']}, {str(u['sex']).lower()}, {u['age']} лет\n"
+        f"• рост {u['height_cm']} см, вес {u['weight_kg']} кг, "
+        f"ИМТ {bmi(u['height_cm'], u['weight_kg'])}\n"
+        f"• активность: {u['activity']}\n"
+        f"• аллергии: {u['allergies'] or '—'}\n"
+        f"• не любит: {u['dislikes'] or '—'}\n"
+        f"• расчётный калораж: {kcal} ккал/сутки\n\n"
+        "Изменить — /profile · удалить — /reset",
+        reply_markup=_menu_kb(),
+    )
+
+
+async def reset_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("🗑 Удалить всё", callback_data="reset:yes"),
+        InlineKeyboardButton("Отмена", callback_data="reset:no"),
+    ]])
+    await update.message.reply_text(
+        "Удалить профиль и все записи дневника? Отменить нельзя.", reply_markup=kb
+    )
+
+
+async def reset_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    if q.data == "reset:yes":
+        delete_user(q.from_user.id)
+        await q.edit_message_text("Профиль и записи удалены. /start — заполнить заново.")
+    else:
+        await q.edit_message_text("Отменено.")
+
+
 def build_application(token: str, post_init=None) -> Application:
     builder = Application.builder().token(token)
     if post_init is not None:
@@ -221,7 +268,6 @@ def build_application(token: str, post_init=None) -> Application:
         entry_points=[
             CommandHandler("start", start),
             CommandHandler("profile", profile_cmd),
-            MessageHandler(filters.Regex(r"^👤 Мой профиль$"), profile_cmd),
         ],
         states={
             PSEUDONYM: [MessageHandler(filters.TEXT & ~filters.COMMAND, got_pseudonym)],
@@ -238,7 +284,10 @@ def build_application(token: str, post_init=None) -> Application:
     ))
     app.add_handler(CommandHandler("menu", menu_cmd))
     app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("reset", reset_cmd))
+    app.add_handler(CallbackQueryHandler(reset_cb, pattern=r"^reset:"))
     app.add_handler(MessageHandler(filters.Regex(r"^❓ Помощь$"), help_cmd))
+    app.add_handler(MessageHandler(filters.Regex(r"^👤 Мой профиль$"), show_profile))
     return app
 
 

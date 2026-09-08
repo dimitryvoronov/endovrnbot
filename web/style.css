@@ -11,6 +11,14 @@
 
 * { box-sizing: border-box; }
 
+.warn {
+  background: #7a1f1f;
+  color: #fff;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
 body {
   margin: 0;
   background: var(--sec);

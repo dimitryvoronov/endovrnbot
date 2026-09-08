@@ -5,6 +5,23 @@ const inTelegram = !!(tg && tg.initData);
 const entry = { distractions: [] };
 const photoFiles = [];
 
+// Surface the common "initData empty" case instead of a bare 401.
+if (tg && !tg.initData) {
+  const u = tg.initDataUnsafe || {};
+  const info =
+    "platform=" + (tg.platform || "?") + " · version=" + (tg.version || "?") +
+    " · user=" + (u.user ? "есть" : "нет");
+  console.warn("Telegram initData is EMPTY —", info, tg.initDataUnsafe);
+  const el = document.getElementById("auth-warn");
+  if (el) {
+    el.textContent =
+      "Telegram не передал данные для входа (initData пуст), сохранение работать не будет. " +
+      "Откройте дневник через кнопку 📝 в чате с ботом, обновите Telegram или попробуйте с телефона. [" +
+      info + "]";
+    el.hidden = false;
+  }
+}
+
 function authHeaders(extra) {
   const h = Object.assign({}, extra || {});
   if (tg && tg.initData) h["Authorization"] = "tma " + tg.initData;
