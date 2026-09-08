@@ -15,14 +15,15 @@ who you ate with, distractions, emotion, optional note.
 | Frontend  | vanilla JS Mini App (`web/`) |
 | Storage   | SQLite (`app/db.py`, `app/schema.sql`) + files in `data/media/` |
 | PDF       | ReportLab (`app/report/pdf.py`) |
-| Bot       | python-telegram-bot, polling (`app/bot.py`) — only `/start` + menu button |
+| Bot       | python-telegram-bot; `/start` onboarding conversation. In prod it runs **in the web process via webhook** (`app/main.py` lifespan); `python -m app.bot` is long-polling for local dev |
 
 ## Layout
 
 ```
 app/
-  main.py            Starlette API + static frontend + PDF delivery
-  bot.py             /start -> opens Mini App; sets chat menu button
+  main.py            Starlette API + static frontend + PDF delivery + /tg/webhook
+  bot.py             /start & /profile onboarding conversation; build_application()
+  profile.py         activity levels + Mifflin-St Jeor kcal estimate
   auth.py            initData (HMAC) validation
   db.py schema.sql   sqlite layer
   report/
@@ -70,10 +71,19 @@ cp .env.example .env                     # then fill BOT_TOKEN (from @BotFather)
 
 ## Deploy
 
-Run `uvicorn app.main:app --host 0.0.0.0 --port <P>` behind TLS on any host
-(Fly.io / Render / a VPS with Caddy). Set `APP_ENV=prod` and `WEBAPP_URL` to that
-origin. Keep the data dir on a persistent volume. `python -m app.bot` can run as a
-second process (only needed for `/start` + the menu button) or be skipped.
+Run `uvicorn app.main:app --host 0.0.0.0 --port <P>` (**single worker**) behind TLS
+on any host (Fly.io / Render / a VPS with Caddy). Set `APP_ENV=prod` and
+`WEBAPP_URL` to that origin. Keep the data dir on a persistent volume.
+
+The bot runs **inside this process**: on startup the lifespan builds the PTB
+`Application`, registers a Telegram webhook at `WEBAPP_URL/tg/webhook` (verified by
+the `X-Telegram-Bot-Api-Secret-Token` header, secret from `TG_WEBHOOK_SECRET` or
+derived from the token), and sets the menu button + command list. So:
+
+- `WEBAPP_URL` **must** be set in prod or the bot gets no updates.
+- Do **not** also run `python -m app.bot` against the same token — polling and
+  webhook are mutually exclusive.
+- One uvicorn worker only (conversation state is in-process memory).
 
 ### Amvera
 
@@ -83,15 +93,25 @@ second process (only needed for `/start` + the menu button) or be skipped.
 - Run command `--port` **must equal** `containerPort` (both `8000` here).
 - No `--reload`.
 - Env vars go in the Amvera panel (Переменные окружения), not a committed `.env`:
-  `BOT_TOKEN`, `APP_ENV=prod`, `WEBAPP_URL=https://<app>.amvera.io`,
-  and `DB_PATH=/data/diary.db`, `MEDIA_DIR=/data/media` (mount a volume at `/data`,
-  or data is wiped on redeploy).
+  `BOT_TOKEN`, `APP_ENV=prod`, `WEBAPP_URL=https://<app>.amvera.io` (required —
+  the bot webhook needs it), and `DB_PATH=/data/diary.db`, `MEDIA_DIR=/data/media`
+  (mount a volume at `/data`, or data is wiped on redeploy).
+- `singleton: true` — keep it one instance (in-process conversation state).
 - Fonts for the PDF are committed under `assets/fonts/`, so no build hook needed.
+
+## Onboarding & menu
+
+- `/start` — if the profile is incomplete, runs a conversation: name → sex → age →
+  height → weight → activity → allergies → dislikes, saved to `users`. `/profile`
+  re-runs it, `/cancel` aborts. The report's "Профиль пациента" block (incl.
+  Mifflin-St Jeor calorie estimate) is filled from this.
+- The Telegram **menu button** is a single button (opens the Mini App). Multiple
+  choices come from the **command list** (`/menu /profile /help /start`, set via
+  `setMyCommands`) and a **persistent reply keyboard** (`/menu`) with
+  「📝 Открыть дневник · 👤 Мой профиль · ❓ Помощь」.
 
 ## Not done yet (deliberately)
 
-- Onboarding / profile capture UI — `users` columns exist, `/api/profile` accepts
-  them, but nothing fills them, so the PDF profile block is mostly `—`.
 - SCOFF (or any) eating-disorder screening and a gate on it.
 - Consent flow / `/delete_me` / data-retention — **required before real users**
   (152-ФЗ: pseudonym, photos and self-reported states are personal data;

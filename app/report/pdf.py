@@ -15,6 +15,7 @@ from reportlab.platypus import (Image, Paragraph, SimpleDocTemplate, Spacer,
                                 Table, TableStyle)
 
 from ..config import FONT_DIR, MEDIA_DIR
+from ..profile import estimate_kcal
 
 FONT = "Body"
 FONT_B = "Body-Bold"
@@ -84,6 +85,8 @@ def build_report(user, rows, agg, alerts_list, period_days, now, start) -> bytes
     bmi = None
     if user["height_cm"] and user["weight_kg"]:
         bmi = round(user["weight_kg"] / (user["height_cm"] / 100) ** 2, 1)
+    kcal = estimate_kcal(user["sex"], user["age"], user["height_cm"],
+                         user["weight_kg"], user["activity"])
     story += [
         Paragraph("1. Профиль пациента", h2),
         _kv_table([
@@ -93,6 +96,7 @@ def build_report(user, rows, agg, alerts_list, period_days, now, start) -> bytes
             ("Рост / вес / ИМТ",
              f"{user['height_cm'] or '—'} см · {user['weight_kg'] or '—'} кг · ИМТ {bmi or '—'}"),
             ("Активность", user["activity"] or "—"),
+            ("Расчётный калораж", f"{kcal} ккал/сутки" if kcal else "—"),
             ("Аллергии", user["allergies"] or "—"),
             ("Не любит", user["dislikes"] or "—"),
         ], body),

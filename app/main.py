@@ -1,7 +1,9 @@
-"""Starlette backend: serves the Mini App frontend + JSON API + PDF report delivery.
+"""Starlette backend: Mini App frontend + JSON API + PDF report, and the
+Telegram bot (onboarding /start) served in-process via webhook.
 
-Run:  uvicorn app.main:app --reload --port 8000
+Run:  uvicorn app.main:app --port 8000        (single worker)
 """
+import contextlib
 import json
 import uuid
 from datetime import datetime, timezone
@@ -12,9 +14,12 @@ from starlette.applications import Starlette
 from starlette.responses import FileResponse, JSONResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
+from telegram import Update as TgUpdate
 
 from .auth import AuthError, user_from_request
-from .config import BASE_DIR, BOT_TOKEN, MEDIA_DIR
+from .bot import build_application, set_menu_button
+from .config import (BASE_DIR, BOT_TOKEN, MEDIA_DIR, TG_WEBHOOK_SECRET,
+                     WEBAPP_URL)
 from .db import (init_db, insert_entry, list_entries, update_profile,
                  upsert_user)
 from .report.aggregate import aggregate, alerts, window
@@ -22,6 +27,47 @@ from .report.pdf import build_report
 
 WEB_DIR = BASE_DIR / "web"
 init_db()
+
+# Holds the running python-telegram-bot Application (webhook mode).
+_bot = {}
+
+
+@contextlib.asynccontextmanager
+async def lifespan(_app):
+    ptb = None
+    if BOT_TOKEN:
+        ptb = build_application(BOT_TOKEN)
+        await ptb.initialize()
+        await ptb.start()
+        _bot["app"] = ptb
+        with contextlib.suppress(Exception):
+            await set_menu_button(ptb)
+        if WEBAPP_URL and TG_WEBHOOK_SECRET:
+            await ptb.bot.set_webhook(
+                url=f"{WEBAPP_URL.rstrip('/')}/tg/webhook",
+                secret_token=TG_WEBHOOK_SECRET,
+                allowed_updates=TgUpdate.ALL_TYPES,
+                drop_pending_updates=True,
+            )
+    try:
+        yield
+    finally:
+        if ptb:
+            with contextlib.suppress(Exception):
+                await ptb.bot.delete_webhook()
+            await ptb.stop()
+            await ptb.shutdown()
+            _bot.pop("app", None)
+
+
+async def telegram_webhook(request):
+    if request.headers.get("x-telegram-bot-api-secret-token") != TG_WEBHOOK_SECRET:
+        return JSONResponse({"detail": "forbidden"}, status_code=403)
+    ptb = _bot.get("app")
+    if ptb is None:
+        return JSONResponse({"detail": "bot not running"}, status_code=503)
+    await ptb.process_update(TgUpdate.de_json(await request.json(), ptb.bot))
+    return JSONResponse({"ok": True})
 
 
 def _now_iso() -> str:
@@ -96,11 +142,18 @@ async def report(request):
 async def _send_pdf(chat_id: int, data: bytes, filename: str):
     if not BOT_TOKEN:
         return False, "BOT_TOKEN not set"
-    from telegram import Bot
+    caption = "Отчёт по дневнику питания"
+    doc = BytesIO(data)
     try:
-        async with Bot(BOT_TOKEN) as bot:
-            await bot.send_document(chat_id=chat_id, document=BytesIO(data),
-                                   filename=filename, caption="Отчёт по дневнику питания")
+        ptb = _bot.get("app")
+        if ptb is not None:
+            await ptb.bot.send_document(chat_id=chat_id, document=doc,
+                                        filename=filename, caption=caption)
+        else:
+            from telegram import Bot
+            async with Bot(BOT_TOKEN) as bot:
+                await bot.send_document(chat_id=chat_id, document=doc,
+                                        filename=filename, caption=caption)
         return True, None
     except Exception as e:  # noqa: BLE001 - surface, don't 500 the report
         return False, f"{type(e).__name__}: {e}"
@@ -116,8 +169,10 @@ routes = [
     Route("/api/profile", profile, methods=["POST"]),
     Route("/api/entries", entries, methods=["GET", "POST"]),
     Route("/api/report", report, methods=["POST"]),
+    Route("/tg/webhook", telegram_webhook, methods=["POST"]),
     Mount("/static", app=StaticFiles(directory=str(WEB_DIR)), name="static"),
     Mount("/media", app=StaticFiles(directory=str(MEDIA_DIR)), name="media"),
 ]
 
-app = Starlette(routes=routes, exception_handlers={AuthError: on_auth_error})
+app = Starlette(routes=routes, lifespan=lifespan,
+                exception_handlers={AuthError: on_auth_error})
