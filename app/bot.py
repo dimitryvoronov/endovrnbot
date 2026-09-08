@@ -9,7 +9,14 @@ from telegram import (InlineKeyboardButton, InlineKeyboardMarkup, MenuButtonWebA
                       Update, WebAppInfo)
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-from .config import BOT_TOKEN, WEBAPP_URL
+# Works both as `python -m app.bot` and as a plain script `python app/bot.py`.
+if __package__:
+    from .config import BOT_TOKEN, WEBAPP_URL
+else:
+    import os
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from app.config import BOT_TOKEN, WEBAPP_URL
 
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

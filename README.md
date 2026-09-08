@@ -70,10 +70,23 @@ cp .env.example .env                     # then fill BOT_TOKEN (from @BotFather)
 
 ## Deploy
 
-Run `uvicorn app.main:app` behind TLS on any host (Fly.io / Render / a VPS with
-Caddy). Set `APP_ENV=prod` and `WEBAPP_URL` to that origin. Keep `data/` on a
-persistent volume. `python -m app.bot` can run as a second process or be replaced
-by a webhook.
+Run `uvicorn app.main:app --host 0.0.0.0 --port <P>` behind TLS on any host
+(Fly.io / Render / a VPS with Caddy). Set `APP_ENV=prod` and `WEBAPP_URL` to that
+origin. Keep the data dir on a persistent volume. `python -m app.bot` can run as a
+second process (only needed for `/start` + the menu button) or be skipped.
+
+### Amvera
+
+`amvera.yml` is in the repo. Rules that matter:
+
+- **`--host 0.0.0.0`** in the run command (default `127.0.0.1` → 503).
+- Run command `--port` **must equal** `containerPort` (both `8000` here).
+- No `--reload`.
+- Env vars go in the Amvera panel (Переменные окружения), not a committed `.env`:
+  `BOT_TOKEN`, `APP_ENV=prod`, `WEBAPP_URL=https://<app>.amvera.io`,
+  and `DB_PATH=/data/diary.db`, `MEDIA_DIR=/data/media` (mount a volume at `/data`,
+  or data is wiped on redeploy).
+- Fonts for the PDF are committed under `assets/fonts/`, so no build hook needed.
 
 ## Not done yet (deliberately)
 
