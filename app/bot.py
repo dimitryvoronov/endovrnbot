@@ -211,6 +211,9 @@ async def cancel(update, ctx):
 
 async def menu_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Меню:", reply_markup=_menu_kb())
+    kb = _webapp_kb()
+    if kb:  # inline web_app button: an alternative launch surface (helps on macOS)
+        await update.message.reply_text("Открыть дневник:", reply_markup=kb)
 
 
 async def help_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
