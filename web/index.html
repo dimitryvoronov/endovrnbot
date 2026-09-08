@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Дневник питания</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <div class="tabs">
+      <button id="tab-new" class="tab active">Запись</button>
+      <button id="tab-hist" class="tab">История</button>
+    </div>
+  </header>
+
+  <main id="view-new" class="view">
+    <section class="card">
+      <h3>Приём пищи</h3>
+      <div id="meal" class="seg wrap" data-field="meal_type">
+        <button>Завтрак</button><button>2-й завтрак</button><button>Обед</button>
+        <button>Полдник</button><button>Ужин</button><button>Поздний перекус</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>Голод ДО еды</h3>
+      <p class="hint">0 — ни голода, ни сытости · 2 — оптимально для приёма · 4 — сильный голод</p>
+      <div id="hunger" class="scale" data-field="hunger_before">
+        <button>0</button><button>1</button><button>2</button><button>3</button><button>4</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>Фото блюда <span class="hint">до 3</span></h3>
+      <input id="photos" type="file" accept="image/*" multiple>
+      <div id="previews" class="previews"></div>
+    </section>
+
+    <section class="card">
+      <h3>Насыщение ПОСЛЕ еды</h3>
+      <p class="hint">0 — комфортно сыт · 3 — «с верхом» · 4 — переел</p>
+      <div id="satiety" class="scale" data-field="satiety_after">
+        <button>0</button><button>1</button><button>2</button><button>3</button><button>4</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>С кем ели</h3>
+      <div id="company" class="seg wrap" data-field="company">
+        <button>Один(а)</button><button>С семьёй</button><button>С коллегами</button>
+        <button>С друзьями</button><button>На встрече</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>С чем ели <span class="hint">можно несколько</span></h3>
+      <div id="distractions" class="chips" data-field="distractions">
+        <button>Без отвлечений</button><button>Телефон/гаджет</button><button>Сериал/фильм</button>
+        <button>Работа/лекция</button><button>Разговор за столом</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>Эмоция во время еды</h3>
+      <div id="emotion" class="seg wrap" data-field="emotion">
+        <button>Радость</button><button>Спокойствие</button><button>Скука</button>
+        <button>Тревога</button><button>Стресс</button><button>Грусть</button>
+        <button>Злость</button><button>Вина</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>Заметка <span class="hint">необязательно</span></h3>
+      <textarea id="note" rows="2" placeholder="Что ели, обстоятельства…"></textarea>
+    </section>
+
+    <button id="submit-fallback" class="submit-fallback">Сохранить запись</button>
+  </main>
+
+  <main id="view-hist" class="view" hidden>
+    <section class="card">
+      <h3>Отчёт диетологу</h3>
+      <div class="report-btns">
+        <button data-days="7">7 дней</button>
+        <button data-days="14">14 дней</button>
+        <button data-days="30">30 дней</button>
+      </div>
+      <p class="hint">PDF придёт сообщением от бота.</p>
+    </section>
+    <div id="entries"></div>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
