@@ -18,8 +18,8 @@ from telegram import Update as TgUpdate
 
 from .auth import AuthError, user_from_request
 from .bot import build_application, on_startup
-from .config import (BASE_DIR, BOT_TOKEN, MEDIA_DIR, TG_WEBHOOK_SECRET,
-                     WEBAPP_URL)
+from .config import (BASE_DIR, BOT_MODE, BOT_TOKEN, MEDIA_DIR,
+                     TG_WEBHOOK_SECRET, WEBAPP_URL)
 from .db import (init_db, insert_entry, list_entries, update_profile,
                  upsert_user)
 from .report.aggregate import aggregate, alerts, window
@@ -42,17 +42,27 @@ async def lifespan(_app):
         _bot["app"] = ptb
         with contextlib.suppress(Exception):
             await on_startup(ptb)
-        if WEBAPP_URL and TG_WEBHOOK_SECRET:
+
+        if BOT_MODE == "webhook" and WEBAPP_URL and TG_WEBHOOK_SECRET:
             await ptb.bot.set_webhook(
                 url=f"{WEBAPP_URL.rstrip('/')}/tg/webhook",
                 secret_token=TG_WEBHOOK_SECRET,
                 allowed_updates=TgUpdate.ALL_TYPES,
                 drop_pending_updates=True,
             )
+        else:  # polling: outbound only, works where Telegram can't reach us inbound
+            with contextlib.suppress(Exception):
+                await ptb.bot.delete_webhook(drop_pending_updates=True)
+            await ptb.updater.start_polling(
+                allowed_updates=TgUpdate.ALL_TYPES, drop_pending_updates=True
+            )
     try:
         yield
     finally:
         if ptb:
+            with contextlib.suppress(Exception):
+                if ptb.updater and ptb.updater.running:
+                    await ptb.updater.stop()
             with contextlib.suppress(Exception):
                 await ptb.bot.delete_webhook()
             await ptb.stop()

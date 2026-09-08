@@ -22,6 +22,10 @@ FONT_DIR = BASE_DIR / "assets" / "fonts"
 # initData older than this many seconds is rejected (0 disables the check).
 INITDATA_TTL = int(os.getenv("INITDATA_TTL", "86400"))
 
+# How the in-process bot receives updates: "polling" (outbound only, works from
+# hosts Telegram cannot reach inbound) or "webhook".
+BOT_MODE = os.getenv("BOT_MODE", "polling").strip().lower()
+
 # Secret for the Telegram webhook (header X-Telegram-Bot-Api-Secret-Token).
 # Stable across restarts when derived from the token; override with an env var.
 TG_WEBHOOK_SECRET = os.getenv("TG_WEBHOOK_SECRET") or (

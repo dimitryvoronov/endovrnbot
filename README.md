@@ -75,17 +75,23 @@ Run `uvicorn app.main:app --host 0.0.0.0 --port <P>` (**single worker**) behind 
 on any host (Fly.io / Render / a VPS with Caddy). Set `APP_ENV=prod` and
 `WEBAPP_URL` to that origin. Keep the data dir on a persistent volume.
 
-The bot runs **inside this process**: on startup the lifespan builds the PTB
-`Application`, registers a Telegram webhook at `WEBAPP_URL/tg/webhook` (verified by
-the `X-Telegram-Bot-Api-Secret-Token` header, secret from `TG_WEBHOOK_SECRET` or
-derived from the token), and sets the command list (`setMyCommands`). The **chat
-menu button is not touched by the app** — configure it in BotFather
-(Bot Settings → Menu Button → the Mini App URL). So:
+The bot runs **inside this process** (Starlette lifespan builds the PTB
+`Application` and sets the command list via `setMyCommands`). Update transport is
+`BOT_MODE`:
 
-- `WEBAPP_URL` **must** be set in prod or the bot gets no updates.
-- Do **not** also run `python -m app.bot` against the same token — polling and
-  webhook are mutually exclusive.
+- **`polling`** (default) — the app calls Telegram (outbound only). Use this when
+  Telegram cannot open connections *to* your host (e.g. some RU hosting — symptom:
+  `getWebhookInfo` shows `"Connection timed out"` and updates never arrive).
+- **`webhook`** — needs `WEBAPP_URL` set and reachable from Telegram; registers
+  `WEBAPP_URL/tg/webhook`, verified by the `X-Telegram-Bot-Api-Secret-Token`
+  header (`TG_WEBHOOK_SECRET`, or derived from the token).
+
+Either way:
+
+- Do **not** also run `python -m app.bot` against the same token.
 - One uvicorn worker only (conversation state is in-process memory).
+- The **chat menu button is not touched by the app** — set it in BotFather
+  (Bot Settings → Menu Button → the Mini App URL).
 
 ### Amvera
 
