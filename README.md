@@ -118,6 +118,16 @@ Either way:
   `setMyCommands`) and a **persistent reply keyboard** (`/menu`) with
   「📝 Открыть дневник · 👤 Мой профиль · ❓ Помощь」.
 
+## Admin commands
+
+Restricted to Telegram ids in `ADMIN_IDS` (env, comma/space separated; a built-in
+default exists in `app/config.py`). Silent for everyone else.
+
+- `/whoami` — your Telegram id (available to anyone)
+- `/users` — registered users: code, pseudonym, sex/age, entry count, last entry
+- `/userreport <P-00001|id> [days]` — build that user's dietitian PDF, sent to you
+- `/userdiary <P-00001|id> [N]` — that user's last N entries as text
+
 ## Not done yet (deliberately)
 
 - SCOFF (or any) eating-disorder screening and a gate on it.

@@ -107,3 +107,39 @@ def list_entries(tg_user_id: int, since_iso: str) -> list[sqlite3.Row]:
             "SELECT * FROM entries WHERE tg_user_id=? AND ts>=? ORDER BY ts DESC",
             (tg_user_id, since_iso),
         ).fetchall()
+
+
+def recent_entries(tg_user_id: int, limit: int = 10) -> list[sqlite3.Row]:
+    with connect() as db:
+        return db.execute(
+            "SELECT * FROM entries WHERE tg_user_id=? ORDER BY ts DESC LIMIT ?",
+            (tg_user_id, limit),
+        ).fetchall()
+
+
+def list_users_summary() -> list[sqlite3.Row]:
+    with connect() as db:
+        return db.execute(
+            """SELECT u.tg_user_id, u.patient_code, u.pseudonym, u.sex, u.age,
+                      COUNT(e.id) AS n_entries, MAX(e.ts) AS last_entry
+               FROM users u LEFT JOIN entries e ON e.tg_user_id = u.tg_user_id
+               GROUP BY u.tg_user_id
+               ORDER BY u.id"""
+        ).fetchall()
+
+
+def resolve_user(key: str) -> sqlite3.Row | None:
+    """Find a user by patient_code ('P-00001'), Telegram id, or bare number."""
+    key = key.strip()
+    with connect() as db:
+        if key.lower().startswith("p-"):
+            return db.execute(
+                "SELECT * FROM users WHERE lower(patient_code)=lower(?)", (key,)
+            ).fetchone()
+        if key.isdigit():
+            n = int(key)
+            row = db.execute("SELECT * FROM users WHERE tg_user_id=?", (n,)).fetchone()
+            return row or db.execute(
+                "SELECT * FROM users WHERE patient_code=?", (f"P-{n:05d}",)
+            ).fetchone()
+    return None

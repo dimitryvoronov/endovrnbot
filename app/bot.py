@@ -3,6 +3,8 @@
 `build_application()` is reused by the web process (webhook mode, app/main.py).
 `main()` runs standalone long-polling for local dev:  python -m app.bot
 """
+from io import BytesIO
+
 from telegram import (BotCommand, InlineKeyboardButton, InlineKeyboardMarkup,
                       KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove,
                       Update, WebAppInfo)
@@ -11,16 +13,22 @@ from telegram.ext import (Application, CallbackQueryHandler, CommandHandler,
                           filters)
 
 if __package__:
-    from .config import BOT_TOKEN, WEBAPP_URL
-    from .db import delete_user, update_profile, upsert_user
+    from .config import ADMIN_IDS, BOT_TOKEN, WEBAPP_URL
+    from .db import (delete_user, list_entries, list_users_summary,
+                     recent_entries, resolve_user, update_profile, upsert_user)
     from .profile import ACTIVITY_CHOICES, SEX_CHOICES, bmi, estimate_kcal
+    from .report.aggregate import aggregate, alerts, window
+    from .report.pdf import build_report
 else:
     import os
     import sys
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from app.config import BOT_TOKEN, WEBAPP_URL
-    from app.db import delete_user, update_profile, upsert_user
+    from app.config import ADMIN_IDS, BOT_TOKEN, WEBAPP_URL
+    from app.db import (delete_user, list_entries, list_users_summary,
+                        recent_entries, resolve_user, update_profile, upsert_user)
     from app.profile import ACTIVITY_CHOICES, SEX_CHOICES, bmi, estimate_kcal
+    from app.report.aggregate import aggregate, alerts, window
+    from app.report.pdf import build_report
 
 PSEUDONYM, SEX, AGE, HEIGHT, WEIGHT, ACTIVITY, ALLERGIES, DISLIKES = range(8)
 _NO = {"нет", "-", "no", "не", "нету"}
@@ -242,6 +250,92 @@ async def show_profile(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def whoami_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(f"Ваш Telegram ID: {update.effective_user.id}")
+
+
+def _is_admin(update: Update) -> bool:
+    return bool(update.effective_user and update.effective_user.id in ADMIN_IDS)
+
+
+async def users_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not _is_admin(update):
+        return
+    rows = list_users_summary()
+    if not rows:
+        await update.message.reply_text("Пользователей нет.")
+        return
+    out = ["Пользователи:"]
+    for r in rows:
+        last = (r["last_entry"] or "—")[:16].replace("T", " ")
+        out.append(f"{r['patient_code']} · {r['pseudonym'] or '—'} · "
+                   f"{r['sex'] or '—'}/{r['age'] or '—'} · "
+                   f"записей {r['n_entries']} · посл. {last}")
+    out.append("\n/userreport <код|id> [дней] · /userdiary <код|id> [N]")
+    await update.message.reply_text("\n".join(out))
+
+
+async def userreport_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not _is_admin(update):
+        return
+    args = ctx.args or []
+    if not args:
+        await update.message.reply_text("Использование: /userreport <P-00001|id> [дней]")
+        return
+    u = resolve_user(args[0])
+    if not u:
+        await update.message.reply_text("Пользователь не найден.")
+        return
+    days = int(args[1]) if len(args) > 1 and args[1].isdigit() else 7
+    since, _until, now, start = window(days)
+    rows = list_entries(u["tg_user_id"], since)
+    agg = aggregate(rows)
+    pdf = build_report(u, rows, agg, alerts(agg, u), days, now, start)
+    await update.message.reply_document(
+        document=BytesIO(pdf),
+        filename=f"diary_report_{days}d_{u['patient_code']}.pdf",
+        caption=f"{u['patient_code']} · {u['pseudonym'] or '—'} · {days} дн.",
+    )
+
+
+async def userdiary_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not _is_admin(update):
+        return
+    args = ctx.args or []
+    if not args:
+        await update.message.reply_text("Использование: /userdiary <P-00001|id> [N]")
+        return
+    u = resolve_user(args[0])
+    if not u:
+        await update.message.reply_text("Пользователь не найден.")
+        return
+    n = int(args[1]) if len(args) > 1 and args[1].isdigit() else 10
+    rows = recent_entries(u["tg_user_id"], n)
+    if not rows:
+        await update.message.reply_text("Записей нет.")
+        return
+    out = [f"{u['patient_code']} · {u['pseudonym'] or '—'} — последние {len(rows)}:"]
+    for r in rows:
+        dz = ", ".join(json_loads(r["distractions"]))
+        extra = "".join([
+            f" · {dz}" if dz else "",
+            f" · {r['emotion']}" if r["emotion"] else "",
+            f" · «{r['note']}»" if r["note"] else "",
+        ])
+        out.append(f"{r['ts'][:16].replace('T', ' ')} · {r['meal_type'] or '—'} · "
+                   f"голод {r['hunger_before']}→насыщ {r['satiety_after']} · "
+                   f"{r['company'] or '—'}{extra}")
+    await update.message.reply_text("\n".join(out))
+
+
+def json_loads(s):
+    import json
+    try:
+        return json.loads(s or "[]")
+    except Exception:
+        return []
+
+
 async def reset_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     kb = InlineKeyboardMarkup([[
         InlineKeyboardButton("🗑 Удалить всё", callback_data="reset:yes"),
@@ -288,6 +382,10 @@ def build_application(token: str, post_init=None) -> Application:
     app.add_handler(CommandHandler("menu", menu_cmd))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("reset", reset_cmd))
+    app.add_handler(CommandHandler("whoami", whoami_cmd))
+    app.add_handler(CommandHandler("users", users_cmd))
+    app.add_handler(CommandHandler("userreport", userreport_cmd))
+    app.add_handler(CommandHandler("userdiary", userdiary_cmd))
     app.add_handler(CallbackQueryHandler(reset_cb, pattern=r"^reset:"))
     app.add_handler(MessageHandler(filters.Regex(r"^❓ Помощь$"), help_cmd))
     app.add_handler(MessageHandler(filters.Regex(r"^👤 Мой профиль$"), show_profile))

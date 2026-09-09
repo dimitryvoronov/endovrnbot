@@ -26,6 +26,15 @@ INITDATA_TTL = int(os.getenv("INITDATA_TTL", "86400"))
 # hosts Telegram cannot reach inbound) or "webhook".
 BOT_MODE = os.getenv("BOT_MODE", "polling").strip().lower()
 
+# Telegram user ids allowed to use the admin commands. The ADMIN_IDS env var
+# (comma/space separated) replaces this default when set.
+_DEFAULT_ADMIN_IDS = "216759030 1874185177"
+ADMIN_IDS = {
+    int(x)
+    for x in os.getenv("ADMIN_IDS", _DEFAULT_ADMIN_IDS).replace(",", " ").split()
+    if x.lstrip("-").isdigit()
+}
+
 # Secret for the Telegram webhook (header X-Telegram-Bot-Api-Secret-Token).
 # Stable across restarts when derived from the token; override with an env var.
 TG_WEBHOOK_SECRET = os.getenv("TG_WEBHOOK_SECRET") or (
