@@ -5,10 +5,8 @@ Run:  uvicorn app.main:app --port 8000        (single worker)
 """
 import contextlib
 import json
-import uuid
 from datetime import datetime, timezone
 from io import BytesIO
-from pathlib import Path
 
 from starlette.applications import Starlette
 from starlette.responses import FileResponse, JSONResponse
@@ -22,6 +20,7 @@ from .config import (BASE_DIR, BOT_MODE, BOT_TOKEN, MEDIA_DIR,
                      TG_WEBHOOK_SECRET, WEBAPP_URL)
 from .db import (init_db, insert_entry, list_entries, update_profile,
                  upsert_user)
+from .media import save_upload
 from .report.aggregate import aggregate, alerts, window
 from .report.pdf import build_report
 
@@ -114,10 +113,9 @@ async def entries(request):
 
     saved = []
     for up in form.getlist("photos")[:3]:
-        ext = Path(getattr(up, "filename", "") or "").suffix.lower() or ".jpg"
-        name = f"{uuid.uuid4().hex}{ext}"
-        (MEDIA_DIR / name).write_bytes(await up.read())
-        saved.append(name)
+        name = save_upload(await up.read(), getattr(up, "filename", "") or "")
+        if name:
+            saved.append(name)
 
     eid = insert_entry(u.id, {
         "ts": data.get("ts") or _now_iso(),

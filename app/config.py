@@ -22,6 +22,10 @@ FONT_DIR = BASE_DIR / "assets" / "fonts"
 # initData older than this many seconds is rejected (0 disables the check).
 INITDATA_TTL = int(os.getenv("INITDATA_TTL", "86400"))
 
+# Meal photos are recompressed to JPEG on upload (longest side, quality).
+PHOTO_MAX_SIDE = int(os.getenv("PHOTO_MAX_SIDE", "1280"))
+PHOTO_QUALITY = int(os.getenv("PHOTO_QUALITY", "80"))
+
 # How the in-process bot receives updates: "polling" (outbound only, works from
 # hosts Telegram cannot reach inbound) or "webhook".
 BOT_MODE = os.getenv("BOT_MODE", "polling").strip().lower()

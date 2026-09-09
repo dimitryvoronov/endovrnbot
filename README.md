@@ -13,7 +13,7 @@ who you ate with, distractions, emotion, optional note.
 |-----------|--------|
 | Backend   | Starlette + uvicorn (`app/main.py`) |
 | Frontend  | vanilla JS Mini App (`web/`) |
-| Storage   | SQLite (`app/db.py`, `app/schema.sql`) + files in `data/media/` |
+| Storage   | SQLite (`app/db.py`, `app/schema.sql`) + photos in `data/media/`, shrunk to JPEG on upload (`app/media.py`, `PHOTO_MAX_SIDE`/`PHOTO_QUALITY`) |
 | PDF       | ReportLab (`app/report/pdf.py`) |
 | Bot       | python-telegram-bot; `/start` onboarding conversation. In prod it runs **in the web process via webhook** (`app/main.py` lifespan); `python -m app.bot` is long-polling for local dev |
 
