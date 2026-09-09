@@ -43,6 +43,7 @@ class MaxBot:
     def __init__(self, client: MaxClient | None = None):
         self.client = client or MaxClient()
         self._fsm: dict[int, dict] = {}          # user_id -> {"step": str, "data": {}}
+        self._chat_of: dict[int, int] = {}       # user_id -> dialog chat_id
         self._poll_task: asyncio.Task | None = None
         self._marker = None
 
@@ -65,25 +66,38 @@ class MaxBot:
 
     async def _send(self, user_id: int, text: str, keyboard=None) -> None:
         atts = [keyboard] if keyboard else []
-        await self.client.send_message(user_id=user_id, text=text, attachments=atts)
+        chat_id = self._chat_of.get(user_id)
+        if chat_id is not None:  # reply to the dialog; user_id can be "suspended"
+            await self.client.send_message(chat_id=chat_id, text=text, attachments=atts)
+        else:
+            await self.client.send_message(user_id=user_id, text=text, attachments=atts)
 
     # ------------------------------------------------------------------ dispatch
     async def handle(self, update: dict) -> None:
         t = update.get("update_type")
         try:
             if t == "bot_started":
-                await self._on_start(update["user"]["user_id"])
+                uid = update["user"]["user_id"]
+                self._remember_chat(uid, update.get("chat_id"))
+                await self._on_start(uid)
             elif t == "message_created":
                 msg = update["message"]
                 uid = msg["sender"]["user_id"]
+                self._remember_chat(uid, (msg.get("recipient") or {}).get("chat_id"))
                 text = (msg.get("body") or {}).get("text") or ""
                 await self._on_text(uid, text.strip())
             elif t == "message_callback":
                 cb = update["callback"]
-                await self._on_callback(cb["user"]["user_id"], cb["callback_id"],
-                                        cb.get("payload") or "")
+                uid = cb["user"]["user_id"]
+                rcpt = ((update.get("message") or {}).get("recipient") or {})
+                self._remember_chat(uid, rcpt.get("chat_id"))
+                await self._on_callback(uid, cb["callback_id"], cb.get("payload") or "")
         except Exception:  # noqa: BLE001 - never let one update kill the loop
             log.exception("handling update failed: %s", t)
+
+    def _remember_chat(self, user_id: int, chat_id) -> None:
+        if chat_id is not None:
+            self._chat_of[user_id] = chat_id
 
     # ------------------------------------------------------------------ handlers
     async def _on_start(self, uid: int) -> None:
@@ -279,7 +293,7 @@ class MaxBot:
         agg = aggregate(rows)
         pdf = build_report(u, rows, agg, alerts(agg, u), days, now, start)
         await self.client.send_document(
-            user_id=uid, data=pdf,
+            chat_id=self._chat_of.get(uid), user_id=uid, data=pdf,
             filename=f"diary_report_{days}d_{u['patient_code']}.pdf",
             caption=f"{u['patient_code']} · {u['pseudonym'] or '—'} · {days} дн.",
         )

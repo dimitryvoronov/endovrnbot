@@ -58,11 +58,7 @@ class MaxClient:
     # --- messaging ---
     async def send_message(self, *, user_id=None, chat_id=None, text=None,
                            attachments=None, notify=True) -> dict:
-        params = {}
-        if user_id is not None:
-            params["user_id"] = user_id
-        if chat_id is not None:
-            params["chat_id"] = chat_id
+        params = {"chat_id": chat_id} if chat_id is not None else {"user_id": user_id}
         body = {"text": text, "attachments": attachments or [], "notify": notify}
         return await self._req("POST", "/messages", params=params, json=body)
 
@@ -77,18 +73,18 @@ class MaxClient:
                                json=body)
 
     # --- file upload (3-step: get url -> POST binary -> attach token) ---
-    async def send_document(self, *, user_id: int, data: bytes, filename: str,
-                            caption: str = "") -> dict:
+    async def send_document(self, *, user_id: int | None = None, chat_id: int | None = None,
+                            data: bytes, filename: str, caption: str = "") -> dict:
         up = await self._req("POST", "/uploads", params={"type": "file"})
         r = await self._http.post(up["url"], files={"data": (filename, data)})
         if r.status_code >= 400:
             raise MaxError(f"upload -> {r.status_code}: {r.text[:200]}")
-        token_obj = r.json()  # {"token": "..."}
-        attachment = {"type": "file", "payload": token_obj}
+        attachment = {"type": "file", "payload": r.json()}  # {"token": "..."}
         last = None
         for _ in range(6):  # server may still be processing the file -> retry
             try:
-                return await self.send_message(user_id=user_id, text=caption or None,
+                return await self.send_message(user_id=user_id, chat_id=chat_id,
+                                               text=caption or None,
                                                attachments=[attachment])
             except MaxError as e:
                 last = e

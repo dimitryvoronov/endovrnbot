@@ -137,7 +137,9 @@ async def _send_pdf(user_id: int, data: bytes, filename: str):
         return False, "BOT_TOKEN not set"
     bot = _bot.get("app") or MaxBot()
     try:
-        await bot.client.send_document(user_id=user_id, data=data, filename=filename,
+        chat_id = bot._chat_of.get(user_id)  # set once the user has messaged the bot
+        await bot.client.send_document(chat_id=chat_id, user_id=user_id, data=data,
+                                       filename=filename,
                                        caption="Отчёт по дневнику питания")
         return True, None
     except Exception as e:  # noqa: BLE001 - surface, don't 500 the report
