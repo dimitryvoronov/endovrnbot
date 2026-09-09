@@ -17,15 +17,17 @@ class MaxClient:
     def __init__(self, token: str = BOT_TOKEN, base: str = MAX_API_BASE):
         self._token = token
         self._base = base.rstrip("/")
-        self._http = httpx.AsyncClient(timeout=httpx.Timeout(95.0, connect=10.0))
+        self._http = httpx.AsyncClient(
+            timeout=httpx.Timeout(95.0, connect=10.0),
+            headers={"Authorization": token},   # ?access_token= is deprecated
+        )
 
     async def aclose(self) -> None:
         await self._http.aclose()
 
     async def _req(self, method: str, path: str, *, params=None, json=None):
-        params = dict(params or {})
-        params["access_token"] = self._token
-        r = await self._http.request(method, f"{self._base}{path}", params=params, json=json)
+        r = await self._http.request(method, f"{self._base}{path}",
+                                     params=dict(params or {}), json=json)
         if r.status_code >= 400:
             raise MaxError(f"{method} {path} -> {r.status_code}: {r.text[:300]}")
         return r.json() if r.content else {}
