@@ -1,7 +1,13 @@
-# nutrition-diary-bot
+# nutrition-diary-bot — MAX edition (`main-max`)
 
-Telegram **Mini App** food-behaviour diary + PDF report for a dietitian.
-A trimmed re-implementation of the `@KF_NUTRITION_BOT` diary flow.
+**MAX** ([max.ru](https://max.ru)) Mini App food-behaviour diary + PDF report for a
+dietitian. Fork of the Telegram version on `main`; only the messenger layer differs
+(`app/bot.py`, `app/max_client.py`, `web/` SDK). Shared modules — `db`, `report`,
+`media`, `profile`, `auth` — are merged from `main`.
+
+MAX Mini App launch data is signed with the same HMAC-SHA256 `WebAppData` scheme as
+Telegram, so `app/auth.py` is unchanged and the frontend still sends
+`Authorization: tma <initData>`.
 
 Captured per meal: hunger before (0–4), photo(s), satiety after (0–4),
 who you ate with, distractions, emotion, optional note.
@@ -15,16 +21,17 @@ who you ate with, distractions, emotion, optional note.
 | Frontend  | vanilla JS Mini App (`web/`) |
 | Storage   | SQLite (`app/db.py`, `app/schema.sql`) + photos in `data/media/`, shrunk to JPEG on upload (`app/media.py`, `PHOTO_MAX_SIDE`/`PHOTO_QUALITY`) |
 | PDF       | ReportLab (`app/report/pdf.py`) |
-| Bot       | python-telegram-bot; `/start` onboarding conversation. In prod it runs **in the web process via webhook** (`app/main.py` lifespan); `python -m app.bot` is long-polling for local dev |
+| Bot       | Hand-rolled MAX Bot API client (`app/max_client.py`) + dispatcher/FSM (`app/bot.py`). Runs **in the web process** (`app/main.py` lifespan) — polling (default) or webhook; `python -m app.bot` is standalone polling for local dev |
 
 ## Layout
 
 ```
 app/
-  main.py            Starlette API + static frontend + PDF delivery + /tg/webhook
-  bot.py             /start & /profile onboarding conversation; build_application()
+  main.py            Starlette API + static frontend + PDF delivery + /max/webhook
+  bot.py             MaxBot: dispatcher + onboarding FSM + menu + /reset + admin
+  max_client.py      async MAX Bot API client (updates, messages, callbacks, upload)
   profile.py         activity levels + Mifflin-St Jeor kcal estimate
-  auth.py            initData (HMAC) validation
+  auth.py            initData (HMAC) validation — shared with Telegram build
   db.py schema.sql   sqlite layer
   report/
     aggregate.py     rows -> metrics (overeat / accumulated-hunger episodes, triggers)
@@ -41,8 +48,13 @@ scripts/
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 python scripts/fetch_fonts.py            # Cyrillic font for the PDF
-cp .env.example .env                     # then fill BOT_TOKEN (from @BotFather)
+cp .env.example .env                     # then fill BOT_TOKEN (from MAX MasterBot)
 ```
+
+Create the bot and get its `access_token` from **[@MasterBot](https://max.ru/MasterBot)**
+in MAX. Register the Mini App URL and get the bot's public name in the MAX developer
+console ([dev.max.ru](https://dev.max.ru)) — put that name in `MAX_WEBAPP_NAME` for
+the in-chat "Открыть дневник" button.
 
 ## Run (dev)
 
@@ -60,38 +72,30 @@ cp .env.example .env                     # then fill BOT_TOKEN (from @BotFather)
    ```
    Put the `https://…` URL into `.env` as `WEBAPP_URL`.
 
-3. **Wire the bot:**
-   ```bash
-   python scripts/set_menu_button.py     # menu button -> Mini App
-   python -m app.bot                     # optional: makes /start reply too
-   ```
-   Open the bot in Telegram → menu button (or `/start`) → the Mini App opens.
-   `Сохранить запись` is the Telegram MainButton; the report buttons live on the
-   **История** tab and the PDF arrives as a message from the bot.
+3. **Wire the bot:** the web process starts it automatically (polling). For a
+   standalone loop: `python -m app.bot`. The Mini App URL and the menu/attach
+   button are configured in the MAX developer console, not by this code.
+   The report buttons live on the **История** tab; the PDF arrives as a file
+   message from the bot.
 
 ## Deploy
 
 Run `uvicorn app.main:app --host 0.0.0.0 --port <P>` (**single worker**) behind TLS
-on any host (Fly.io / Render / a VPS with Caddy). Set `APP_ENV=prod` and
-`WEBAPP_URL` to that origin. Keep the data dir on a persistent volume.
+on any host. Set `APP_ENV=prod` and `WEBAPP_URL` to that origin. Keep the data dir
+on a persistent volume.
 
-The bot runs **inside this process** (Starlette lifespan builds the PTB
-`Application` and sets the command list via `setMyCommands`). Update transport is
+The bot runs **inside this process** (Starlette lifespan). Update transport is
 `BOT_MODE`:
 
-- **`polling`** (default) — the app calls Telegram (outbound only). Use this when
-  Telegram cannot open connections *to* your host (e.g. some RU hosting — symptom:
-  `getWebhookInfo` shows `"Connection timed out"` and updates never arrive).
-- **`webhook`** — needs `WEBAPP_URL` set and reachable from Telegram; registers
-  `WEBAPP_URL/tg/webhook`, verified by the `X-Telegram-Bot-Api-Secret-Token`
-  header (`TG_WEBHOOK_SECRET`, or derived from the token).
+- **`polling`** (default) — the app long-polls `GET /updates` (outbound only). Use
+  this when MAX cannot open connections *to* your host.
+- **`webhook`** — needs `WEBAPP_URL` reachable from MAX on port 80/443/8080/8443 or
+  16384-32383; the app calls `POST /subscriptions` for `WEBAPP_URL/max/webhook`,
+  verified by the `X-Max-Bot-Api-Secret` header (`MAX_WEBHOOK_SECRET`, or derived
+  from the token).
 
-Either way:
-
-- Do **not** also run `python -m app.bot` against the same token.
-- One uvicorn worker only (conversation state is in-process memory).
-- The **chat menu button is not touched by the app** — set it in BotFather
-  (Bot Settings → Menu Button → the Mini App URL).
+Either way: do **not** also run `python -m app.bot` against the same token, and use
+one uvicorn worker only (onboarding state is in-process memory).
 
 ### Amvera
 
@@ -101,29 +105,30 @@ Either way:
 - Run command `--port` **must equal** `containerPort` (both `8000` here).
 - No `--reload`.
 - Env vars go in the Amvera panel (Переменные окружения), not a committed `.env`:
-  `BOT_TOKEN`, `APP_ENV=prod`, `WEBAPP_URL=https://<app>.amvera.io` (required —
-  the bot webhook needs it), and `DB_PATH=/data/diary.db`, `MEDIA_DIR=/data/media`
+  `BOT_TOKEN` (MAX access_token), `APP_ENV=prod`,
+  `WEBAPP_URL=https://<app>.amvera.io`, `MAX_WEBAPP_NAME=<bot public name>`,
+  `ADMIN_IDS=<max ids>`, and `DB_PATH=/data/diary.db`, `MEDIA_DIR=/data/media`
   (mount a volume at `/data`, or data is wiped on redeploy).
-- `singleton: true` — keep it one instance (in-process conversation state).
+- `singleton: true` — keep it one instance (in-process onboarding state).
 - Fonts for the PDF are committed under `assets/fonts/`, so no build hook needed.
 
 ## Onboarding & menu
 
-- `/start` — if the profile is incomplete, runs a conversation: name → sex → age →
-  height → weight → activity → allergies → dislikes, saved to `users`. `/profile`
-  re-runs it, `/cancel` aborts. The report's "Профиль пациента" block (incl.
-  Mifflin-St Jeor calorie estimate) is filled from this.
-- The Telegram **menu button** is a single button (opens the Mini App). Multiple
-  choices come from the **command list** (`/menu /profile /help /start`, set via
-  `setMyCommands`) and a **persistent reply keyboard** (`/menu`) with
-  「📝 Открыть дневник · 👤 Мой профиль · ❓ Помощь」.
+- `/start` (or the MAX **Start** button → `bot_started`) — if the profile is
+  incomplete, runs a text conversation: name → sex (М/Ж) → age → height → weight →
+  activity (1–5) → allergies → dislikes, saved to `users`. `/profile` re-runs it,
+  `/cancel` aborts. Fills the report's "Профиль пациента" block (incl. Mifflin-St
+  Jeor calorie estimate).
+- `/menu` sends an inline keyboard: 「📝 Открыть дневник (open_app, needs
+  `MAX_WEBAPP_NAME`) · 👤 Мой профиль · ❓ Помощь · 🗑 Сбросить профиль」.
+  `👤 Мой профиль` shows the stored profile; `/reset` (or the button) wipes profile
+  + entries + photos after an inline confirm.
 
 ## Admin commands
 
-Restricted to Telegram ids in `ADMIN_IDS` (env, comma/space separated; a built-in
-default exists in `app/config.py`). Silent for everyone else.
+Restricted to MAX ids in `ADMIN_IDS` (env, comma/space separated). Silent for
+everyone else.
 
-- `/whoami` — your Telegram id (available to anyone)
 - `/users` — registered users: code, pseudonym, sex/age, entry count, last entry
 - `/userreport <P-00001|id> [days]` — build that user's dietitian PDF, sent to you
 - `/userdiary <P-00001|id> [N]` — that user's last N entries as text

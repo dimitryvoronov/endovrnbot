@@ -8,12 +8,16 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")           # MAX bot access_token
 APP_ENV = os.getenv("APP_ENV", "dev")
 IS_DEV = APP_ENV == "dev"
 
 # Public https URL where the Mini App frontend is served (tunnel in dev).
 WEBAPP_URL = os.getenv("WEBAPP_URL", "")
+
+# MAX Bot API base and the bot's public name wired to the mini app (open_app button).
+MAX_API_BASE = os.getenv("MAX_API_BASE", "https://botapi.max.ru")
+MAX_WEBAPP_NAME = os.getenv("MAX_WEBAPP_NAME", "")
 
 DB_PATH = Path(os.getenv("DB_PATH", str(BASE_DIR / "data" / "diary.db")))
 MEDIA_DIR = Path(os.getenv("MEDIA_DIR", str(BASE_DIR / "data" / "media")))
@@ -30,18 +34,16 @@ PHOTO_QUALITY = int(os.getenv("PHOTO_QUALITY", "80"))
 # hosts Telegram cannot reach inbound) or "webhook".
 BOT_MODE = os.getenv("BOT_MODE", "polling").strip().lower()
 
-# Telegram user ids allowed to use the admin commands. The ADMIN_IDS env var
-# (comma/space separated) replaces this default when set.
-_DEFAULT_ADMIN_IDS = "216759030 1874185177"
+# MAX user ids allowed to use the admin commands (comma/space separated env var).
 ADMIN_IDS = {
     int(x)
-    for x in os.getenv("ADMIN_IDS", _DEFAULT_ADMIN_IDS).replace(",", " ").split()
+    for x in os.getenv("ADMIN_IDS", "").replace(",", " ").split()
     if x.lstrip("-").isdigit()
 }
 
-# Secret for the Telegram webhook (header X-Telegram-Bot-Api-Secret-Token).
+# Secret for the MAX webhook (header X-Max-Bot-Api-Secret).
 # Stable across restarts when derived from the token; override with an env var.
-TG_WEBHOOK_SECRET = os.getenv("TG_WEBHOOK_SECRET") or (
+MAX_WEBHOOK_SECRET = os.getenv("MAX_WEBHOOK_SECRET") or (
     hashlib.sha256(f"wh:{BOT_TOKEN}".encode()).hexdigest()[:40] if BOT_TOKEN else ""
 )
 

@@ -1,23 +1,23 @@
-const tg = window.Telegram && window.Telegram.WebApp;
-if (tg) { tg.ready(); tg.expand(); }
+// MAX Bridge — https://st.max.ru/js/max-web-app.js exposes window.WebApp.
+// No MainButton / showAlert / ready() / expand() / theme vars (unlike Telegram).
+const tg = window.WebApp || null;
+const inMessenger = !!(tg && tg.initData);
 
-const inTelegram = !!(tg && tg.initData);
 const entry = { distractions: [] };
 const photoFiles = [];
+const fallbackBtn = document.getElementById("submit-fallback");
 
-// Surface the common "initData empty" case instead of a bare 401.
+// Surface the "initData empty" case instead of a bare 401.
 if (tg && !tg.initData) {
   const u = tg.initDataUnsafe || {};
   const info =
-    "platform=" + (tg.platform || "?") + " · version=" + (tg.version || "?") +
-    " · user=" + (u.user ? "есть" : "нет");
-  console.warn("Telegram initData is EMPTY —", info, tg.initDataUnsafe);
+    "platform=" + (tg.platform || "?") + " · user=" + (u.user ? "есть" : "нет");
+  console.warn("MAX initData is EMPTY —", info, tg.initDataUnsafe);
   const el = document.getElementById("auth-warn");
   if (el) {
     el.textContent =
-      "Telegram не передал данные для входа (initData пуст), сохранение работать не будет. " +
-      "Откройте дневник через кнопку 📝 в чате с ботом, обновите Telegram или попробуйте с телефона. [" +
-      info + "]";
+      "MAX не передал данные для входа (initData пуст), сохранение работать не будет. " +
+      "Откройте дневник через кнопку в чате с ботом или обновите приложение. [" + info + "]";
     el.hidden = false;
   }
 }
@@ -28,12 +28,14 @@ function authHeaders(extra) {
   return h;
 }
 
-// tg.showAlert throws outside a recent Telegram client; fall back to window.alert
 function notify(msg) {
-  try {
-    if (inTelegram && tg && tg.showAlert) { tg.showAlert(msg); return; }
-  } catch (e) { /* unsupported -> fall through */ }
   window.alert(msg);
+}
+
+function haptic(kind) {
+  try {
+    if (tg && tg.HapticFeedback && tg.HapticFeedback[kind]) tg.HapticFeedback[kind]();
+  } catch (e) { /* optional */ }
 }
 
 /* ---- single-select groups (.seg, .scale) ---- */
@@ -45,8 +47,8 @@ document.querySelectorAll(".seg, .scale").forEach((group) => {
       group.querySelectorAll("button").forEach((b) => b.classList.remove("on"));
       btn.classList.add("on");
       entry[field] = isScale ? Number(btn.textContent) : btn.textContent;
-      if (tg && tg.HapticFeedback) tg.HapticFeedback.selectionChanged();
-      refreshMainButton();
+      haptic("selectionChanged");
+      refreshSubmit();
     });
   });
 });
@@ -60,7 +62,7 @@ document.querySelectorAll(".chips").forEach((group) => {
       const set = new Set(entry[field] || []);
       set.has(btn.textContent) ? set.delete(btn.textContent) : set.add(btn.textContent);
       entry[field] = [...set];
-      if (tg && tg.HapticFeedback) tg.HapticFeedback.selectionChanged();
+      haptic("selectionChanged");
     });
   });
 });
@@ -95,7 +97,7 @@ function switchTab(name) {
   for (const k in views) views[k].hidden = k !== name;
   document.getElementById("tab-new").classList.toggle("active", name === "new");
   document.getElementById("tab-hist").classList.toggle("active", name === "hist");
-  refreshMainButton();
+  refreshSubmit();
 }
 
 /* ---- submit ---- */
@@ -103,12 +105,10 @@ function ready() {
   return entry.meal_type && entry.hunger_before != null && entry.satiety_after != null;
 }
 
-function refreshMainButton() {
-  if (!tg || !tg.MainButton) return;
-  if (views.new.hidden) { tg.MainButton.hide(); return; }
-  tg.MainButton.setText(ready() ? "Сохранить запись" : "Приём + обе шкалы");
-  ready() ? tg.MainButton.enable() : tg.MainButton.disable();
-  tg.MainButton.show();
+function refreshSubmit() {
+  fallbackBtn.hidden = views.new.hidden;
+  fallbackBtn.disabled = !ready();
+  fallbackBtn.textContent = ready() ? "Сохранить запись" : "Заполните приём и обе шкалы";
 }
 
 async function submitEntry() {
@@ -116,7 +116,8 @@ async function submitEntry() {
     notify("Отметьте приём пищи и обе шкалы (голод, насыщение).");
     return;
   }
-  if (tg && tg.MainButton) tg.MainButton.showProgress();
+  fallbackBtn.disabled = true;
+  fallbackBtn.textContent = "Сохраняю…";
 
   const payload = {
     ts: new Date().toISOString().replace(/\.\d+Z$/, "Z"),
@@ -135,13 +136,13 @@ async function submitEntry() {
   try {
     const res = await fetch("/api/entries", { method: "POST", headers: authHeaders(), body: fd });
     if (!res.ok) throw new Error(await res.text());
-    if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+    haptic("notificationOccurred");
     resetForm();
     notify("Запись сохранена.");
   } catch (e) {
     notify("Ошибка: " + e.message);
   } finally {
-    if (tg && tg.MainButton) tg.MainButton.hideProgress();
+    refreshSubmit();
   }
 }
 
@@ -152,16 +153,11 @@ function resetForm() {
   previews.innerHTML = "";
   document.getElementById("note").value = "";
   document.querySelectorAll("button.on").forEach((b) => b.classList.remove("on"));
-  refreshMainButton();
+  refreshSubmit();
 }
 
-const fallbackBtn = document.getElementById("submit-fallback");
 fallbackBtn.onclick = submitEntry;
-if (inTelegram && tg.MainButton) {
-  fallbackBtn.style.display = "none";
-  tg.MainButton.onClick(submitEntry);
-}
-refreshMainButton();
+refreshSubmit();
 
 /* ---- history + report ---- */
 async function loadEntries() {
