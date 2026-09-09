@@ -119,8 +119,10 @@ one uvicorn worker only (onboarding state is in-process memory).
   activity (1–5) → allergies → dislikes, saved to `users`. `/profile` re-runs it,
   `/cancel` aborts. Fills the report's "Профиль пациента" block (incl. Mifflin-St
   Jeor calorie estimate).
-- `/menu` sends an inline keyboard: 「📝 Открыть дневник (open_app, needs
-  `MAX_WEBAPP_NAME`) · 👤 Мой профиль · ❓ Помощь · 🗑 Сбросить профиль」.
+- `/menu` sends an inline keyboard: 「📝 Открыть дневник · 👤 Мой профиль · ❓ Помощь
+  · 🗑 Сбросить профиль」. The `open_app` button appears only when `MAX_WEBAPP_NAME`
+  is a **registered Mini App Direct Link** (dev.max.ru) — not the bot username; a
+  wrong value 404s and the message is then resent without the keyboard.
   `👤 Мой профиль` shows the stored profile; `/reset` (or the button) wipes profile
   + entries + photos after an inline confirm.
 

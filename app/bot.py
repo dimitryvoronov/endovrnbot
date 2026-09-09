@@ -13,7 +13,8 @@ import logging
 from .config import ADMIN_IDS, BOT_TOKEN, MAX_WEBAPP_NAME
 from .db import (delete_user, list_entries, list_users_summary, recent_entries,
                  resolve_user, update_profile, upsert_user)
-from .max_client import MaxClient, callback_btn, inline_keyboard, open_app_btn
+from .max_client import (MaxClient, MaxError, callback_btn, inline_keyboard,
+                         open_app_btn)
 from .profile import ACTIVITY_CHOICES, bmi, estimate_kcal
 from .report.aggregate import aggregate, alerts, window
 from .report.pdf import build_report
@@ -65,12 +66,18 @@ class MaxBot:
         return inline_keyboard(rows)
 
     async def _send(self, user_id: int, text: str, keyboard=None) -> None:
-        atts = [keyboard] if keyboard else []
         chat_id = self._chat_of.get(user_id)
-        if chat_id is not None:  # reply to the dialog; user_id can be "suspended"
-            await self.client.send_message(chat_id=chat_id, text=text, attachments=atts)
-        else:
-            await self.client.send_message(user_id=user_id, text=text, attachments=atts)
+        target = {"chat_id": chat_id} if chat_id is not None else {"user_id": user_id}
+        atts = [keyboard] if keyboard else []
+        try:
+            await self.client.send_message(text=text, attachments=atts, **target)
+        except MaxError as e:
+            if not atts:
+                raise
+            # a bad attachment (e.g. open_app link not registered) must not eat
+            # the whole message — resend the text alone
+            log.warning("send with attachments failed (%s); retrying text-only", e)
+            await self.client.send_message(text=text, attachments=[], **target)
 
     # ------------------------------------------------------------------ dispatch
     async def handle(self, update: dict) -> None:
